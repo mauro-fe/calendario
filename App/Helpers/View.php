@@ -10,7 +10,8 @@ class View {
     private $footer;
 
     public function __construct($viewPath, $data = []) {
-        $this->viewPath = __DIR__ . '/../../views/' . $viewPath . '.php';  // Caminho da view
+        $this->viewPath = __DIR__ . '/../../views/' . ltrim($viewPath, '/') . '.php';
+
         $this->data = $data;  // Dados para a view
     }
 

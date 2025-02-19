@@ -19,5 +19,3 @@ class Event extends Model
 
     // Relacionamentos (se necessário, podem ser adicionados aqui)
 }
-
-

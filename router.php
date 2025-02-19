@@ -16,24 +16,30 @@ class Router
     // Executa o roteador
     public static function run($requestedPath)
     {
-        $requestedPath = rtrim($requestedPath, '/'); // Remove barra final, se houver
-        $requestedPath = $requestedPath === '' ? '/' : $requestedPath;
+        // Remove query strings da URL
+        $route = strtok($requestedPath, '?'); // Ignora parâmetros na URL
+        $route = rtrim($route, '/');
+        $route = $route === '' ? '/' : $route;
 
-        foreach (self::$routes as $route) {
-            $pattern = preg_replace('/\{([a-zA-Z0-9_]+)\}/', '([a-zA-Z0-9_-]+)', trim($route['path'], '/'));
+        error_log("Rota solicitada: " . $route); // Log para depuração
+
+        foreach (self::$routes as $routeConfig) {
+            $pattern = preg_replace('/\{([a-zA-Z0-9_]+)\}/', '([a-zA-Z0-9_-]+)', trim($routeConfig['path'], '/'));
             $pattern = "#^$pattern$#";
 
-            // Verifica o método HTTP e se a rota corresponde
-            if ($_SERVER['REQUEST_METHOD'] === $route['method'] && preg_match($pattern, trim($requestedPath, '/'), $matches)) {
+            if ($_SERVER['REQUEST_METHOD'] === $routeConfig['method'] && preg_match($pattern, trim($route, '/'), $matches)) {
                 array_shift($matches);
 
-                if (is_callable($route['callback'])) {
-                    call_user_func_array($route['callback'], $matches);
+                // Adiciona os parâmetros de query string como último argumento
+                $matches[] = $_GET;
+
+                if (is_callable($routeConfig['callback'])) {
+                    call_user_func_array($routeConfig['callback'], $matches);
                     return;
                 }
 
-                if (is_string($route['callback'])) {
-                    list($controller, $method) = explode('@', $route['callback']);
+                if (is_string($routeConfig['callback'])) {
+                    list($controller, $method) = explode('@', $routeConfig['callback']);
                     $controllerFile = __DIR__ . "/App/Controllers/" . $controller . ".php";
 
                     if (file_exists($controllerFile)) {
@@ -49,7 +55,6 @@ class Router
             }
         }
 
-        // Página 404
         http_response_code(404);
         echo "Página não encontrada!";
     }

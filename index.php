@@ -1,19 +1,26 @@
 <?php
-// Carrega o roteador
+// Carrega o roteador e as rotas
 require_once 'router.php';
 require_once 'routes/web.php';
 
-// Define a URL base (ajuste conforme necessário)
+
+// Obtém a URL base da requisição
 $baseURL = $_SERVER['REQUEST_URI'];
 
-if (strpos($baseURL, "/calendario/") !== false) {
-    $baseURL = rtrim(str_replace("/calendario/", '', $baseURL), '/');
+// Ajusta o caminho base do projeto corretamente
+$projectBase = "/calendario/"; // Defina conforme o seu projeto
+
+if (strpos($baseURL, $projectBase) === 0) {
+    $baseURL = substr($baseURL, strlen($projectBase));
 }
 
-// Remove parâmetros de query da URL
+// Remove parâmetros de query da URL para identificar a rota limpa
 $route = strtok($baseURL, '?');
+
+// Se a rota estiver vazia, defina um valor padrão (por exemplo, página inicial)
+if (empty($route)) {
+    $route = '/';
+}
 
 // Executa o roteador
 Router::run($route);
-?>
-

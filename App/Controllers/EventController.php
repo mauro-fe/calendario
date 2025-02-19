@@ -6,127 +6,181 @@ require_once __DIR__ . '/../Helpers/View.php';
 require_once __DIR__ . '/../Helpers/Validator.php';
 
 use App\Models\Event;
-use App\Helpers\Validator;
 use App\Helpers\View;
 
 class EventController
 {
-    // Método para exibir os eventos
-    public function index()
-    {
-        // Busca os eventos no banco de dados
-        $events = Event::all();
-
-        // Converte para o formato esperado pelo FullCalendar
-        $response = $events->map(function ($event) {
-            return [
-                'id' => $event->id,
-                'title' => $event->title,
-                'start' => date('Y-m-d\TH:i:s', strtotime($event->start)), // Converte para formato ISO 8601
-                'end' => date('Y-m-d\TH:i:s', strtotime($event->end)),     // Converte para formato ISO 8601
-                'description' => $event->description,
-            ];
-        });
-
-        // Renderiza a view do calendário
-        $view = new View('calendar/index');
-        $view->setHeader('calendar/header');
-        $view->setFooter('calendar/footer');
-        $view->render();
-    }
-
-    // Método para criar um novo evento
-    public function store()
+    // Método para buscar eventos e renderizar o calendário
+    public function getEvents()
     {
         try {
-            $data = [
-                'title' => $_POST['title'] ?? null,
-                'start' => $_POST['start'] ?? null,
-                'end' => $_POST['end'] ?? null,
-                'description' => $_POST['description'] ?? null,
+            $year = filter_input(INPUT_GET, 'year', FILTER_VALIDATE_INT) ?? date('Y');
+            $month = filter_input(INPUT_GET, 'month', FILTER_VALIDATE_INT) ?? date('m');
 
-            ];
-
-            if (empty($data['title']) || empty($data['start']) || empty($data['end'])) {
-                echo json_encode(['success' => false, 'message' => 'Dados incompletos.']);
-                return;
+            // Ajusta os valores do mês (entre 1 e 12)
+            if ($month < 1) {
+                $month = 12;
+                $year--;
+            } elseif ($month > 12) {
+                $month = 1;
+                $year++;
             }
 
-            Event::create($data);
+            // Calcula o mês anterior e o próximo
+            $prevMonth = $month - 1;
+            $prevYear = $year;
+            if ($prevMonth < 1) {
+                $prevMonth = 12;
+                $prevYear--;
+            }
 
-            echo json_encode(['success' => true, 'message' => 'Evento adicionado com sucesso!']);
+            $nextMonth = $month + 1;
+            $nextYear = $year;
+            if ($nextMonth > 12) {
+                $nextMonth = 1;
+                $nextYear++;
+            }
+
+            $events = Event::whereYear('start', $year)
+                ->whereMonth('start', $month)
+                ->get();
+
+            $monthName = date('F', mktime(0, 0, 0, $month, 1, $year));
+            $daysInMonth = cal_days_in_month(CAL_GREGORIAN, $month, $year);
+            $firstDayOfMonth = date('w', strtotime("$year-$month-01"));
+
+            $viewData = [
+                'year' => $year,
+                'month' => $month,
+                'prevYear' => $prevYear,
+                'prevMonth' => $prevMonth,
+                'nextYear' => $nextYear,
+                'nextMonth' => $nextMonth,
+                'monthName' => $monthName,
+                'daysInMonth' => $daysInMonth,
+                'firstDayOfMonth' => $firstDayOfMonth,
+                'events' => $events,
+            ];
+
+            $view = new View('calendar/index', $viewData);
+            $view->render();
         } catch (Exception $e) {
-            echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+            error_log("Erro ao carregar eventos: " . $e->getMessage());
+            http_response_code(500);
+            echo "<h1>Erro ao carregar eventos</h1><p>Tente novamente mais tarde.</p>";
         }
     }
 
 
-    // Método para atualizar um evento existente
-    public function update($id)
+
+
+    // Página inicial do calendário
+    public function index()
     {
-        // Verifica se o administrador está logado
-        $this->checkAdminSession();
+        $this->getEvents();
+    }
 
-        if (!empty($_POST)) {
-            $validator = new Validator();
+    // Adicionar evento (Formulário + Processamento)
+    public function store()
+    {
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $title = htmlspecialchars($_POST['title']);
+            $start = $_POST['start_time']; // Data e hora de início
+            $end = $_POST['end_time']; // Data e hora de término
+            $description = htmlspecialchars($_POST['description']);
 
-            $rules = [
-                'title' => 'required|max_len,255',
-                'start' => 'required|date',
-                'end'   => 'required|date|after_or_equal,start',
-                'description' => 'nullable|max_len,500',
-            ];
-            var_dump($rules);exit;
-
-            // Valida os dados enviados
-            $validated = $validator->validate($_POST, $rules);
-
-            if (!$validated['valid']) { // Verifica se a validação falhou
-                $this->sendJsonResponse(false, 'Erro na validação dos dados.', $validated['errors']);
-                return;
+            // Validação: impedir datas passadas
+            $currentDateTime = date('Y-m-d H:i:s'); // Data e hora atual
+            if ($start < $currentDateTime || $end < $currentDateTime) {
+                $_SESSION['error'] = 'Você não pode adicionar eventos no passado!';
+                header('Location: /calendario');
+                exit;
             }
 
-            // Busca o evento pelo ID e atualiza
-            $event = Event::findOrFail($id);
-            $event->update($validated);
+            // Validação adicional: título, horário de início e término não podem ser vazios
+            if (empty($title) || empty($start) || empty($end)) {
+                $_SESSION['error'] = 'Todos os campos obrigatórios devem ser preenchidos!';
+                header('Location: /calendario');
+                exit;
+            }
 
-            // Retorna sucesso como JSON
-            $this->sendJsonResponse(true, 'Evento atualizado com sucesso!', $event);
-        }
-    }
+            // Salva o evento
+            Event::create([
+                'title' => $title,
+                'start' => $start,
+                'end' => $end,
+                'description' => $description,
+            ]);
 
-    // Método para deletar um evento
-    public function delete($id)
-    {
-        // Verifica se o administrador está logado
-        $this->checkAdminSession();
-
-        // Busca o evento pelo ID e remove
-        $event = Event::findOrFail($id);
-        $event->delete();
-
-        // Retorna sucesso como JSON
-        $this->sendJsonResponse(true, 'Evento removido com sucesso!');
-    }
-
-    // Método para verificar se o administrador está logado
-    private function checkAdminSession()
-    {
-        if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
-            header('Location: ' . BASE_URL . '/admin/login');
+            $_SESSION['success'] = 'Evento adicionado com sucesso!';
+            header('Location: /calendario');
             exit;
         }
     }
 
-    // Método para enviar respostas JSON
-    private function sendJsonResponse($success, $message, $data = null)
+
+
+    // Editar evento (Formulário + Processamento)
+    public function edit($id)
     {
-        header('Content-Type: application/json');
-        echo json_encode([
-            'success' => $success,
-            'message' => $message,
-            'data' => $data,
-        ]);
-        exit;
+        if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+            $title = htmlspecialchars($_POST['title']);
+            $start = $_POST['start'];
+            $end = $_POST['end'];
+            $description = htmlspecialchars($_POST['description']);
+
+            // Valida os dados do formulário
+            if (empty($title) || empty($start) || empty($end)) {
+                $_SESSION['error'] = 'Todos os campos obrigatórios devem ser preenchidos!';
+                header('Location: /calendario');
+                exit;
+            }
+
+            if (strtotime($start) > strtotime($end)) {
+                $_SESSION['error'] = 'A data de início não pode ser maior que a data de término!';
+                header('Location: /calendario');
+                exit;
+            }
+
+            // Atualiza o evento
+            $event = Event::findOrFail($id);
+            $event->update([
+                'title' => $title,
+                'start' => $start,
+                'end' => $end,
+                'description' => $description,
+            ]);
+
+            $_SESSION['success'] = 'Evento atualizado com sucesso!';
+            header('Location: /calendario');
+            exit;
+        }
+    }
+
+
+    // Excluir evento
+    public function delete()
+    {
+        try {
+            // Obtém os dados enviados via POST
+            $eventId = $_POST['id'] ?? null;
+
+            if (empty($eventId) || !is_numeric($eventId)) {
+                header('Location: /calendario?error=ID do evento inválido.');
+                exit;
+            }
+
+            // Verifica se o evento existe e exclui
+            $event = Event::findOrFail($eventId);
+            $event->delete();
+
+            $_SESSION['success'] = 'Evento excluído com sucesso!';
+            header('Location: /calendario');
+            exit;
+        } catch (Exception $e) {
+            error_log("Erro ao excluir evento: " . $e->getMessage());
+            header('Location: /calendario?error=Erro ao excluir evento.');
+            exit;
+        }
     }
 }
